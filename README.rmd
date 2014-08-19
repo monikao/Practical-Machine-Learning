@@ -1,0 +1,90 @@
+---
+title: "Practical Machine Learning Assignment"
+output: pdf_document
+---
+This document describe the analysis done for the prediction assignment of the practical machine learning course.
+
+The data is taken from the Human Activity Recognition programme at Groupware.
+
+I start with data loading procedure by specifying the data sources and destinations.
+I also download them, some values contained  "#DIV/0!" which I replaced with an NA values.
+
+```{r}
+training.url  <- ("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+test.url      <- ("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+download.file(training.url, destfile=".\\train.csv")
+download.file(test.url, destfile=".\\test.csv")
+training <- read.csv(".\\train.csv", na.strings=c("#DIV/0!"))
+evaluation <- read.csv(".\\test.csv", na.strings=c("#DIV/0!"))
+```
+
+I load some packages needed during process and set a seed.
+```{r}
+library(Hmisc)
+library(caret)
+library(randomForest)
+library(foreach)
+library(doParallel)
+set.seed(2048)
+options(warn=-1)
+```
+
+The returned training data frame has nearly 20,000 rows and 160 columns so discard any column with an NA, as well as metadata and time-related ones. The same with evaluation_data.
+```{r}
+isNA <- apply(training, 2, function(x) { sum(is.na(x)) })
+validTrain <- subset(training[, which(isNA == 0)], 
+                    select=-c(X, user_name, new_window, num_window, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+
+validTest <-subset(evaluation[, which(isNA == 0)], 
+                   select=-c(X, user_name, new_window, num_window, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp))
+
+
+```
+Let's start with partitioning the training data to training and test sets.
+
+```{r}
+trainingIndex  <- createDataPartition(validTrain$classe, p=0.70, list=FALSE)
+training.train <- validTrain[ trainingIndex,]
+training.test  <- validTrain[-trainingIndex,]
+
+```
+I prepare a fit model:
+
+```{r}
+control <- trainControl(allowParallel=T, method="cv", number=4)
+model <- train(classe ~ ., data=training, method="rf", trControl=control)
+pred <- predict(model, newdata=testing)
+
+```
+
+And check the predictions against the held-back test-set.
+
+```{r}
+sum(pred == testing$classe) / length(pred)
+confusionMatrix(testing$classe, pred)$table
+```
+
+It's accurate, so I use the model to predict unknown test labels. 
+```{r}
+predict(model, newdata=validTest)
+```
+
+I prepare the submission, using COURSERA provided code.
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+x <- validTest
+x <- x[feature_set[feature_set!='classe']]
+answers <- predict(model, newdata=x)
+
+answers
+
+pml_write_files(answers)
+```
